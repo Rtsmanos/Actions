@@ -1,0 +1,275 @@
+util.require_natives("3095a")
+
+local my_root = menu.my_root()
+
+local models_cop_holster = {
+    [368603149] = {component = 9, unarmed = 1, armed = 0}, -- S_F_Y_Cop_01
+    [2680682039] = {component = 9, unarmed = 1, armed = 0}, -- S_F_Y_Ranger_01
+    [1096929346] = {component = 9, unarmed = 1, armed = 0}, -- S_F_Y_Sheriff_01 
+    [1581098148] = {component = 9, unarmed = 1, armed = 0}, -- S_M_Y_Cop_01
+    [1939545845] = {component = 9, unarmed = 1, armed = 0}, -- S_M_Y_HwayCop_01
+    [4017173934] = {component = 9, unarmed = 1, armed = 0}, -- S_M_Y_Ranger_01
+    [2974087609] = {component = 9, unarmed = 1, armed = 0}, -- S_M_Y_Sheriff_01
+    [1650288984] = {component = 2, unarmed = 2, armed = 0} -- S_M_M_CIASEC_01
+}
+
+local function request_model(model)
+    if not STREAMING.HAS_MODEL_LOADED(model) then
+        STREAMING.REQUEST_MODEL(model)
+        local timeout_ms = util.current_time_millis() + 3000
+        while timeout_ms > util.current_time_millis() and not STREAMING.HAS_MODEL_LOADED(model) do
+            util.yield()
+        end
+    end
+    return STREAMING.HAS_MODEL_LOADED(model)
+end
+local function request_anim(anim_dict)
+    if not STREAMING.HAS_ANIM_DICT_LOADED(anim_dict) then
+        STREAMING.REQUEST_ANIM_DICT(anim_dict)
+        local timeout_ms = util.current_time_millis() + 3000
+        while timeout_ms > util.current_time_millis() and not STREAMING.HAS_ANIM_DICT_LOADED(anim_dict) do
+            util.yield()
+        end
+    end
+    return STREAMING.HAS_ANIM_DICT_LOADED(anim_dict)
+end
+local function request_anim_clip_set(clip_set)
+    if STREAMING.HAS_CLIP_SET_LOADED(clip_set) == 0 then
+        STREAMING.REQUEST_CLIP_SET(clip_set)
+        local timeout_ms = util.current_time_millis() + 3000
+        while timeout_ms > util.current_time_millis() and STREAMING.HAS_CLIP_SET_LOADED(clip_set) == 0 do
+            util.yield()
+        end
+    end
+    return STREAMING.HAS_CLIP_SET_LOADED(clip_set) == 1
+end
+
+local function is_action_control_pressed()
+    return PAD.IS_CONTROL_PRESSED(0, 36) or PAD.IS_CONTROL_PRESSED(2, 36)
+end
+
+local function play_anim(anim_dict, anim_set, anim_duration, feat_time_ms, last_weapon, current_weapon)
+    local player_ped = players.user_ped()
+    TASK.TASK_PLAY_ANIM(player_ped, anim_dict, anim_set, 2.0, -2.0, anim_duration, 32|16, 0.0, false, false, false)
+    WEAPON.SET_CURRENT_PED_WEAPON(player_ped, last_weapon, true)
+    local timeout_ms = util.current_time_millis() + feat_time_ms
+    while true and timeout_ms > util.current_time_millis() and WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped()) == last_weapon do
+        util.yield()
+    end
+    player_ped = players.user_ped()
+    if WEAPON.GET_SELECTED_PED_WEAPON(player_ped) == last_weapon then
+        WEAPON.SET_CURRENT_PED_WEAPON(player_ped, current_weapon, true)
+        if anim_set == "intro" then
+            local timeout_ms = util.current_time_millis() + 1200
+            while timeout_ms > util.current_time_millis() and WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped()) == current_weapon do
+                util.yield()
+            end
+        end
+    end
+end
+
+GLoop = true
+my_root:toggle_loop("Gangstar Holster", {"HolsterToggel"}, "Use to get Gangstar draw animation",
+    function()
+        GLoop = true
+        local last_weapon = WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped())
+        local last_wheel_slot = WEAPON.GET_WEAPONTYPE_SLOT(last_weapon)
+        local anim_dict = "reaction@intimidation@1h"
+        while GLoop do
+            if not PED.IS_PED_IN_ANY_VEHICLE(players.user_ped(), true) and request_anim(anim_dict) then
+                local current_weapon = WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped())
+                local current_wheel_slot = WEAPON.GET_WEAPONTYPE_SLOT(current_weapon)
+                if current_weapon ~= last_weapon then
+                    if not (models_cop_holster[entities.get_model_hash(players.user_ped())] and (current_wheel_slot == 0 or last_wheel_slot == 0)) then
+                        if current_weapon == 2725352035 then -- WEAPON_UNARMED
+                            play_anim(anim_dict, "outro", 1700, 1700, last_weapon, current_weapon)
+                        else
+                            play_anim(anim_dict, "intro", 2400, 1200, last_weapon, current_weapon)
+                        end
+                    end
+                end
+            end
+            last_weapon = WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped())
+            last_wheel_slot = WEAPON.GET_WEAPONTYPE_SLOT(last_weapon)
+            util.yield()
+        end
+    end, function()
+    TASK.CLEAR_PED_TASKS(players.user_ped())
+    GLoop = false
+end)
+
+function IsPedAiming(ped)
+    return PED.GET_PED_CONFIG_FLAG(ped, 78, true) == 1 and true or false
+end
+
+function startCrouching(ped)
+    if not ped then
+        ped = players.user_ped()
+    end
+
+    is_crouched = true
+
+    PED.SET_PED_MOVEMENT_CLIPSET(ped, "move_ped_crouched", 0.80)
+    PED.SET_PED_STRAFE_CLIPSET(ped, "move_ped_crouched_strafing")
+end
+
+function stopCrouching(ped)
+    if not ped then
+        ped = players.user_ped()
+    end
+
+    is_crouched = false
+
+    if STREAMING.HAS_ANIM_SET_LOADED("move_ped_crouched") then
+        STREAMING.REMOVE_ANIM_SET("move_ped_crouched")
+    end
+    PED.RESET_PED_MOVEMENT_CLIPSET(ped, 0.30)
+    PED.RESET_PED_STRAFE_CLIPSET(ped)
+end
+
+util.on_stop(stopCrouching)
+
+my_root:toggle_loop("Crouch", {"CrouchToggel"}, "Use STEALTH key to crouch. (dont spam / for T bag hold the button)",
+    function()
+        local ped = players.user_ped()
+        local clip_set = "move_ped_crouched"
+        STREAMING.REQUEST_ANIM_SET(clip_set)
+        PAD.DISABLE_CONTROL_ACTION(0, 36, true)
+        if PED.GET_PED_STEALTH_MOVEMENT(ped) then
+            PED.SET_PED_STEALTH_MOVEMENT(ped, 0, "DEFAULT_ACTION")
+        end
+        
+        if not HUD.IS_PAUSE_MENU_ACTIVE() then
+            -- uncomment next line to turn firstperson off
+            PAD.DISABLE_CONTROL_ACTION(0, 36, true) 
+            if PAD.IS_DISABLED_CONTROL_PRESSED(0, 36) then
+                if is_crouched then
+                    stopCrouching(ped)
+                else
+                    startCrouching(ped)
+                end
+                util.yield(200)
+            end
+        end
+        if is_crouched then
+            -- makes sure that the player don't run like normal when he shot with a weapon or something exploded nearby etc...
+            if PED.IS_PED_USING_ACTION_MODE(ped) then
+                PED.SET_PED_USING_ACTION_MODE(ped, false, -1, "DEFAULT_ACTION")
+            end
+        end
+    end, function()
+    stopCrouching()
+    PAD.ENABLE_CONTROL_ACTION(0, 36, true)
+end)
+
+
+-- thx aarroonn for fixing my toggle lol :3
+running = true
+my_root:toggle_loop("Cop Holster", {"CopHolsterToggel"}, "Use to get Cop draw animation", 
+    function()
+        running = true
+        local anim_dict = "rcmjosh4"
+        local anim_set = "josh_leadout_cop2"
+        local intimidation_anim_dict = "reaction@intimidation@cop@unarmed"
+        local last_wpn = WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped())
+        local last_wheel_slot = WEAPON.GET_WEAPONTYPE_SLOT(last_wpn)
+        local unarmed_wpn = 2725352035
+        while running do 
+            if request_anim(anim_dict) and request_anim(intimidation_anim_dict) then
+                local player_ped = players.user_ped()
+                local current_wpn = WEAPON.GET_SELECTED_PED_WEAPON(player_ped)
+                local current_wheel_slot = WEAPON.GET_WEAPONTYPE_SLOT(current_wpn)
+                if last_wpn ~= current_wpn then --and (current_wheel_slot == 0 or last_wheel_slot == 0) then
+                    if last_wheel_slot == 0 then
+                    WEAPON.SET_CURRENT_PED_WEAPON(player_ped, last_wpn, true)
+                    else
+                        WEAPON.SET_PED_CURRENT_WEAPON_VISIBLE(player_ped, false, false, false, false)
+                    end
+                    TASK.TASK_PLAY_ANIM(player_ped, anim_dict, anim_set, 2.0, -2.0, 450, 16|32, 0.0, false, false, false)
+                    util.yield()
+                    while ENTITY.IS_ENTITY_PLAYING_ANIM(players.user_ped(), anim_dict, anim_set, 3) == 1 do
+                        util.yield()
+                    end
+                    player_ped = players.user_ped()
+                            
+                    if current_wheel_slot ~= 0 and current_wpn ~= unarmed_wpn then
+                        WEAPON.SET_CURRENT_PED_WEAPON(player_ped, current_wpn, true)
+                        WEAPON.SET_PED_CURRENT_WEAPON_VISIBLE(player_ped, false, false, false, false)
+                        util.yield(250)
+                        WEAPON.SET_PED_CURRENT_WEAPON_VISIBLE(player_ped, true, false, false, false)
+                    end
+                end
+            end
+            last_wpn = WEAPON.GET_SELECTED_PED_WEAPON(players.user_ped())
+            last_wheel_slot = WEAPON.GET_WEAPONTYPE_SLOT(last_wpn)
+            util.yield()
+        end
+    end, function()
+        TASK.CLEAR_PED_TASKS(players.user_ped())
+        running = false
+end)
+
+G_AS_loop = true
+my_root:toggle_loop("Gangster Aim", {"GangAS"}, "Use to get gangster aim animation", 
+    function()
+        G_AS_loop = true
+        while G_AS_loop do 
+            ped = players.user_ped()
+            hash = WEAPON.GET_SELECTED_PED_WEAPON(ped)
+
+            --thx aarroonn <3
+            local ammo_ptr = memory.alloc_int()
+            WEAPON.GET_AMMO_IN_CLIP(ped, hash, ammo_ptr)
+            local ammo = memory.read_int(ammo_ptr)  
+            --thx aarroonn <3
+
+            if request_anim("combat@aim_variations@1h@gang") then
+                if PLAYER.IS_PLAYER_FREE_AIMING(players.user()) or (PAD.IS_CONTROL_PRESSED(0, 24) and ammo > 0) then
+                    if not ENTITY.IS_ENTITY_PLAYING_ANIM(ped, "combat@aim_variations@1h@gang", "aim_variation_a", 3) then
+                        TASK.TASK_PLAY_ANIM(ped, "combat@aim_variations@1h@gang", "aim_variation_a", 8.0, -8.0, -1, 49, 0, 0, 0, 0)
+                        PED.SET_ENABLE_HANDCUFFS(ped, true)
+                    end
+                elseif ENTITY.IS_ENTITY_PLAYING_ANIM(ped, "combat@aim_variations@1h@gang", "aim_variation_a", 3) then
+                    TASK.CLEAR_PED_SECONDARY_TASK(ped)
+                    PED.SET_ENABLE_HANDCUFFS(ped, false)
+                end
+            end
+            util.yield()
+        end
+    end, function()
+        TASK.CLEAR_PED_TASKS(players.user_ped())
+        G_AS_loop = false
+end)
+
+H_AS_loop = true
+my_root:toggle_loop("Hillbilly Aim", {"HillAS"}, "Use to get Hillbilly aim animation", 
+    function()
+        H_AS_loop = true
+        while H_AS_loop do 
+            ped = players.user_ped()
+            hash = WEAPON.GET_SELECTED_PED_WEAPON(ped)
+
+            --thx aarroonn <3
+            local ammo_ptr = memory.alloc_int()
+            WEAPON.GET_AMMO_IN_CLIP(ped, hash, ammo_ptr)
+            local ammo = memory.read_int(ammo_ptr)  
+            --thx aarroonn <3
+
+            if request_anim("combat@aim_variations@1h@hillbilly") then
+                if PLAYER.IS_PLAYER_FREE_AIMING(players.user()) or (PAD.IS_CONTROL_PRESSED(0, 24) and ammo > 0) then
+                    if not ENTITY.IS_ENTITY_PLAYING_ANIM(ped, "combat@aim_variations@1h@hillbilly", "aim_variation_a", 3) then
+                        TASK.TASK_PLAY_ANIM(ped, "combat@aim_variations@1h@hillbilly", "aim_variation_a", 8.0, -8.0, -1, 49, 0, 0, 0, 0)
+                        PED.SET_ENABLE_HANDCUFFS(ped, true)
+                    end
+                elseif ENTITY.IS_ENTITY_PLAYING_ANIM(ped, "combat@aim_variations@1h@hillbilly", "aim_variation_a", 3) then
+                    TASK.CLEAR_PED_SECONDARY_TASK(ped)
+                    PED.SET_ENABLE_HANDCUFFS(ped, false)
+                end
+            end
+            util.yield()
+        end
+    end, function()
+        TASK.CLEAR_PED_TASKS(players.user_ped())
+        H_AS_loop = false
+end)
+
